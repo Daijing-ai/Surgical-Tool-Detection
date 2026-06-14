@@ -1,42 +1,39 @@
-import numpy as np
 import torch
 import torch.nn as nn
-import torchvision
-import torchvision.models as models 
+import torchvision.models as models
 from torch.nn import functional as F
 
 
-class ResNet(nn.Module):
-    
-    def __init__(self, in_channels=7, num_classes=14):
+class ResNetBaseline(nn.Module):
+    def __init__(self, backbone='resnet50', num_classes=7, pretrained=True):
         super().__init__()
-        # self.resnet = torch.hub.load('pytorch/vision:v0.10.0', 'resnet101', pretrained=True)
-        self.resnet = models.resnet101(pretrained=True)
-        self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
-        self.last_layer = torch.nn.Linear(in_features=1000, out_features=num_classes, bias=True)
-        self.sigmoid = nn.Sigmoid()
+        pretrained_weights = 'DEFAULT' if pretrained else None
+
+        if backbone == 'resnet50':
+            self.backbone = models.resnet50(weights=pretrained_weights)
+        elif backbone == 'resnet101':
+            self.backbone = models.resnet101(weights=pretrained_weights)
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+
+        in_features = self.backbone.fc.in_features
+        self.backbone.fc = nn.Identity()
+        self.last_layer = nn.Linear(in_features, num_classes)
 
     def forward(self, x):
-        x = self.resnet(x)
+        x = self.backbone(x)
         x = self.last_layer(x)
-        # x = self.sigmoid(x) 
         return x
-    
+
+
 class UNet16(nn.Module):
     def __init__(self, num_classes=1, num_filters=32, pretrained=False):
-        """
-        :param num_classes:
-        :param num_filters:
-        :param pretrained:
-            False - no pre-trained network used
-            True - encoder pre-trained with VGG11
-        """
         super().__init__()
         self.num_classes = num_classes
 
         self.pool = nn.MaxPool2d(2, 2)
 
-        self.encoder = torchvision.models.vgg16(pretrained=pretrained).features
+        self.encoder = models.vgg16(pretrained=pretrained).features
 
         self.relu = nn.ReLU(inplace=True)
 
@@ -102,13 +99,9 @@ class UNet16(nn.Module):
             x_out = self.final(dec1)
 
         return x_out
-    
-class DecoderBlock(nn.Module):
-    """
-    Paramaters for Deconvolution were chosen to avoid artifacts, following
-    link https://distill.pub/2016/deconv-checkerboard/
-    """
 
+
+class DecoderBlock(nn.Module):
     def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
         super(DecoderBlock, self).__init__()
         self.in_channels = in_channels
@@ -141,6 +134,7 @@ class ConvRelu(nn.Module):
         x = self.conv(x)
         x = self.activation(x)
         return x
-    
+
+
 def conv3x3(in_, out):
     return nn.Conv2d(in_, out, 3, padding=1)
